@@ -32,6 +32,8 @@ import {
   type ProjectTask,
   updateWorldBookEntry,
 } from "../services/worldbookApi";
+import { useWorldBookFilters } from "./worldbook/useWorldBookFilters";
+import { useWorldBookPagination } from "./worldbook/useWorldBookPagination";
 
 type WorldBookEntryForm = {
   title: string;
@@ -170,10 +172,7 @@ export function WorldBookPage() {
   const [baseline, setBaseline] = useState<WorldBookEntryForm | null>(null);
   const [form, setForm] = useState<WorldBookEntryForm>(() => toForm(null));
 
-  const [searchText, setSearchText] = useState("");
-  const [sortMode, setSortMode] = useState<
-    "updated_desc" | "updated_asc" | "priority_desc" | "priority_asc" | "enabled_desc" | "enabled_asc"
-  >("updated_desc");
+  const { searchText, setSearchText, sortMode, setSortMode } = useWorldBookFilters(projectId);
 
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSelectAllActive, setBulkSelectAllActive] = useState(false);
@@ -341,41 +340,6 @@ export function WorldBookPage() {
     setBulkExcludedIds((prev) => prev.filter((id) => idSet.has(id)));
   }, [bulkExcludedIds.length, bulkMode, bulkSelectAllActive, bulkSelectedIds.length, entries]);
 
-  useEffect(() => {
-    if (!projectId) return;
-    try {
-      const raw = localStorage.getItem(`ainovel:worldbook:filter:${projectId}`) || "";
-      const parsed = JSON.parse(raw) as { searchText?: unknown; sortMode?: unknown } | null;
-      if (parsed && typeof parsed === "object") {
-        if (typeof parsed.searchText === "string") setSearchText(parsed.searchText);
-        if (typeof parsed.sortMode === "string") {
-          const v = parsed.sortMode;
-          if (
-            v === "updated_desc" ||
-            v === "updated_asc" ||
-            v === "priority_desc" ||
-            v === "priority_asc" ||
-            v === "enabled_desc" ||
-            v === "enabled_asc"
-          ) {
-            setSortMode(v);
-          }
-        }
-      }
-    } catch {
-      // ignore
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!projectId) return;
-    try {
-      localStorage.setItem(`ainovel:worldbook:filter:${projectId}`, JSON.stringify({ searchText, sortMode }));
-    } catch {
-      // ignore
-    }
-  }, [projectId, searchText, sortMode]);
-
   const filterState = useMemo(() => {
     const tokens = tokenizeSearch(searchText);
     const priorityRank: Record<WorldBookPriority, number> = {
@@ -446,33 +410,19 @@ export function WorldBookPage() {
     setBulkExcludedIds([]);
   }, [bulkMode, bulkExcludedIds.length, bulkSelectAllActive, searchText, sortMode]);
 
-  const [entryPageIndex, setEntryPageIndex] = useState(0);
-
-  const paginateEntries = filteredEntries.length > WORLD_BOOK_ENTRY_RENDER_THRESHOLD;
-  const totalEntryPages = paginateEntries ? Math.ceil(filteredEntries.length / WORLD_BOOK_ENTRY_PAGE_SIZE) : 1;
-  const maxEntryPageIndex = Math.max(0, totalEntryPages - 1);
-  const entryPageIndexClamped = Math.min(entryPageIndex, maxEntryPageIndex);
-  const entryPageStart = paginateEntries ? entryPageIndexClamped * WORLD_BOOK_ENTRY_PAGE_SIZE : 0;
-  const entryPageEnd = paginateEntries
-    ? Math.min(entryPageStart + WORLD_BOOK_ENTRY_PAGE_SIZE, filteredEntries.length)
-    : filteredEntries.length;
-
-  useEffect(() => {
-    setEntryPageIndex(0);
-  }, [searchText, sortMode]);
-
-  useEffect(() => {
-    if (!paginateEntries) {
-      if (entryPageIndex !== 0) setEntryPageIndex(0);
-      return;
-    }
-    if (entryPageIndexClamped !== entryPageIndex) setEntryPageIndex(entryPageIndexClamped);
-  }, [entryPageIndex, entryPageIndexClamped, paginateEntries]);
-
-  const visibleEntries = useMemo(
-    () => (paginateEntries ? filteredEntries.slice(entryPageStart, entryPageEnd) : filteredEntries),
-    [entryPageEnd, entryPageStart, filteredEntries, paginateEntries],
-  );
+  const {
+    paginate: paginateEntries,
+    totalPages: totalEntryPages,
+    pageIndex: entryPageIndexClamped,
+    pageStart: entryPageStart,
+    pageEnd: entryPageEnd,
+    pageItems: visibleEntries,
+    setPageIndex: setEntryPageIndex,
+  } = useWorldBookPagination(filteredEntries, {
+    threshold: WORLD_BOOK_ENTRY_RENDER_THRESHOLD,
+    pageSize: WORLD_BOOK_ENTRY_PAGE_SIZE,
+    resetToken: `${searchText}::${sortMode}`,
+  });
 
   const bulkVisibleSelectedCount = useMemo(() => {
     if (!bulkMode) return 0;
